@@ -4,7 +4,7 @@ import numpy as np
 import csv
 
 # Path to video
-video_path = "videos/helicopter3.mp4"
+video_path = "videos/video.mp4"
 video = cv2.VideoCapture(video_path)
 
 # Read only the first frame for drawing a rectangle for the desired object

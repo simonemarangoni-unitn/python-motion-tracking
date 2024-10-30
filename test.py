@@ -1,129 +1,97 @@
 # Import necessary libraries
-import cv2 
+import cv2
 import numpy as np
- 
+import csv
 
-# Path to video  
-video_path="videos/video.mp4" 
+# Path to video
+video_path = "videos/helicopter3.mp4"
 video = cv2.VideoCapture(video_path)
 
-# read only the first frame for drawing a rectangle for the desired object
-ret,frame = video.read()
+# Read only the first frame for drawing a rectangle for the desired object
+ret, frame = video.read()
 
-# I am giving  big random numbers for x_min and y_min because if you initialize them as zeros whatever coordinate you go minimum will be zero 
-x_min,y_min,x_max,y_max=36000,36000,0,0
+# Initialize coordinates for the rectangle
+x_min, y_min, x_max, y_max = 36000, 36000, 0, 0
 
+def coordinat_chooser(event, x, y, flags, param):
+    global x_min, y_min, x_max, y_max
 
-def coordinat_chooser(event,x,y,flags,param):
-    global go , x_min , y_min, x_max , y_max
+    # Handle left mouse button click
+    if event == cv2.EVENT_LBUTTONDOWN:
+        x_min = min(x, x_min)
+        y_min = min(y, y_min)
+        x_max = max(x, x_max)
+        y_max = max(y, y_max)
+        cv2.rectangle(frame, (x_min, y_min), (x_max, y_max), (0, 255, 0), 1)
 
-    # when you click the right button, it will provide coordinates for variables
-    if event==cv2.EVENT_LBUTTONDOWN:
-        
-        # if current coordinate of x lower than the x_min it will be new x_min , same rules apply for y_min 
-        x_min=min(x,x_min) 
-        y_min=min(y,y_min)
-
-         # if current coordinate of x higher than the x_max it will be new x_max , same rules apply for y_max
-        x_max=max(x,x_max)
-        y_max=max(y,y_max)
-
-        # draw rectangle
-        cv2.rectangle(frame,(x_min,y_min),(x_max,y_max),(0,255,0),1)
-
-
-    """
-        if you didn't like your rectangle (maybe if you made some misscliks),  reset the coordinates with the middle button of your mouse
-        if you press the middle button of your mouse coordinates will reset and you can give a new 2-point pair for your rectangle
-    """
-    if event==cv2.EVENT_MBUTTONDOWN:
-        print("reset coordinate  data")
-        x_min,y_min,x_max,y_max=36000,36000,0,0
+    # Reset coordinates with the middle mouse button
+    if event == cv2.EVENT_MBUTTONDOWN:
+        print("Reset coordinate data")
+        x_min, y_min, x_max, y_max = 36000, 36000, 0, 0
 
 cv2.namedWindow('coordinate_screen')
-# Set mouse handler for the specified window, in this case, "coordinate_screen" window
-cv2.setMouseCallback('coordinate_screen',coordinat_chooser)
+cv2.setMouseCallback('coordinate_screen', coordinat_chooser)
+
+while True:
+    cv2.imshow("coordinate_screen", frame)  # Show only first frame
+    k = cv2.waitKey(5) & 0xFF  # Press ESC to exit
+    if k == 27:
+        cv2.destroyAllWindows()
+        break
+
+# Take region of interest (inside of rectangle)
+roi_image = frame[y_min:y_max, x_min:x_max]
+
+# Convert ROI to grayscale, SIFT works with grayscale images
+roi_gray = cv2.cvtColor(roi_image, cv2.COLOR_BGR2GRAY)
+
+# Step 2: Find key points of ROI (target image)
+sift = cv2.SIFT_create()
+keypoints_1, descriptors_1 = sift.detectAndCompute(roi_gray, None)
+
+# Draw keypoints on the ROI image (optional visualization)
+roi_keypoint_image = cv2.drawKeypoints(roi_gray, keypoints_1, roi_gray)
+
+# Step 3: Track the target object in Video
+video = cv2.VideoCapture(video_path)  # Reopen the video
+bf = cv2.BFMatcher()
+
+# Initialize statistics
+total_matches = 0
+frames_processed = 0
 
 
 while True:
-    cv2.imshow("coordinate_screen",frame) # show only first frame 
-    
-    k = cv2.waitKey(5) & 0xFF # after drawing rectangle press ESC   
-    if k == 27:
-        cv2.destroyAllWindows()
-        break
+    ret, frame = video.read()
+    if not ret:
+        break  # Exit if there are no more frames
 
-
-# take region of interest ( take inside of rectangle )
-roi_image=frame[y_min:y_max,x_min:x_max]
-
-# convert roi to grayscale, SIFT Algorithm works with grayscale images
-roi_gray=cv2.cvtColor(roi_image,cv2.COLOR_BGR2GRAY) 
-
-
-# STEP 2 : Find key points of ROI (target image)
-
-# create SIFT algorithm object
-sift = cv2.SIFT_create()
-
-# find roi's keypoints and descriptors
-keypoints_1, descriptors_1 = sift.detectAndCompute(roi_gray, None)
-
-roi_keypoint_image=cv2.drawKeypoints(roi_gray,keypoints_1,roi_gray)
-
-
-# STEP 3 : Track the target object in Video
-
-# Path to the video  
-video = cv2.VideoCapture(video_path)
-
-# matcher object
-bf = cv2.BFMatcher()
-
-while True :
-    # reading video 
-    ret,frame=video.read()
-
-    # convert the frame to grayscale 
-    frame_gray=cv2.cvtColor(frame,cv2.COLOR_BGR2GRAY)
-
-
-    # find current frames keypoints and descriptors
+    frame_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
     keypoints_2, descriptors_2 = sift.detectAndCompute(frame_gray, None)
 
+    # Compare key points/descriptors
+    matches = bf.match(descriptors_1, descriptors_2)
+    total_matches += len(matches)
+    frames_processed += 1
 
-    """
-    Compare the key points/descriptors extracted from the 
-    the first frame(from the target object) with those extracted from the current frame.
-    """
-    matches =bf.match(descriptors_1, descriptors_2)
-
- 
     for match in matches:
-        # .queryIdx and .trainIdx give index for key points
-
-        # .queryIdx gives keypoint index from target image
         query_idx = match.queryIdx
-
-        # .trainIdx gives keypoint index from current frame 
         train_idx = match.trainIdx
-        
-        # take coordinates that match
-        pt1 = keypoints_1[query_idx].pt
-
-        # current frame key points coordinates
         pt2 = keypoints_2[train_idx].pt
-        
-        # draw circle to pt2 coordinates , because pt2 gives current frame coordinates
-        cv2.circle(frame,(int(pt2[0]),int(pt2[1])),2,(255,0,0),2)
+        cv2.circle(frame, (int(pt2[0]), int(pt2[1])), 2, (255, 0, 0), 2)
 
-    # show frame to screen
-    cv2.imshow("coordinate_screen",frame) 
+    cv2.imshow("coordinate_screen", frame)
 
-
-    k = cv2.waitKey(5) & 0xFF # after drawing rectangle press ESC   
+    k = cv2.waitKey(5) & 0xFF  # Press ESC to exit
     if k == 27:
         cv2.destroyAllWindows()
         break
-        
+
+# Write statistics to a CSV file
+with open('statistiche_progetto.csv', mode='w', newline='') as file:
+    writer = csv.writer(file)
+    writer.writerow(["Total Matches","Frames Processed"])
+    writer.writerow([total_matches, frames_processed])
+
+print("Statistiche salvate in 'statistiche_progetto.csv'.")
 cv2.destroyAllWindows()
